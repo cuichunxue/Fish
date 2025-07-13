@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>海の大冒険！魚のエボリューション</title>
+    <style>
+        /* 基本スタイルは前回と同じ */
+        :root {
+            --ocean-deep: #1a237e;
+            --ocean-mid: #1976d2;
+            --ocean-shallow: #4fc3f7;
+            --text-light: #ffffff;
+            --text-dark: #333333;
+            --danger: #ff5252;
+            --success: #4caf50;
+            --warning: #ffab00;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            touch-action: manipulation;
+            font-family: 'Arial Rounded MT Bold', 'Arial', sans-serif;
+            background: linear-gradient(to bottom, var(--ocean-shallow), var(--ocean-mid));
+            user-select: none;
+            -webkit-user-select: none;
+            color: var(--text-light);
+        }
+
+        /* その他のスタイルは前回と同じ */
+
+        /* タコの足用スタイル */
+        .tentacle {
+            position: absolute;
+            background-color: rgba(255, 255, 255, 0.7);
+            border-radius: 50%;
+            transform-origin: center;
+        }
+
+        /* 剣魚の剣用スタイル */
+        .swordfish-sword {
+            position: absolute;
+            width: 30px;
+            height: 6px;
+            background-color: #ffeb3b;
+            border-radius: 3px;
+            transform-origin: left center;
+        }
+    </style>
+</head>
+<body>
+    <!-- HTML構造は前回と同じ -->
+
+    <script>
+        // ゲーム状態（前回と同じ）
+
+        // 特殊能力管理クラス
+        class SpecialAbilities {
+            static createAbility(type, x, y, angle) {
+                switch(type) {
+                    case 'octopus':
+                        return this.createTentacles(x, y);
+                    case 'swordfish':
+                        return this.createSword(x, y, angle);
+                    default:
+                        return [];
+                }
+            }
+
+            static createTentacles(x, y) {
+                const tentacles = [];
+                for(let i = 0; i < 8; i++) {
+                    const angle = (i / 8) * Math.PI * 2;
+                    tentacles.push({
+                        type: 'tentacle',
+                        x: x,
+                        y: y,
+                        length: 40,
+                        angle: angle,
+                        currentLength: 0,
+                        maxLength: 40 + Math.random() * 20,
+                        thickness: 5 + Math.random() * 5,
+                        speed: 0.1 + Math.random() * 0.2,
+                        growing: true
+                    });
+                }
+                return tentacles;
+            }
+
+            static createSword(x, y, angle) {
+                return [{
+                    type: 'sword',
+                    x: x,
+                    y: y,
+                    angle: angle,
+                    length: 0,
+                    maxLength: 50,
+                    thickness: 3,
+                    speed: 0.3,
+                    growing: true
+                }];
+            }
+
+            static updateAbilities(abilities) {
+                abilities.forEach(ability => {
+                    if(ability.growing) {
+                        ability.length += ability.speed;
+                        if(ability.length >= ability.maxLength) {
+                            ability.growing = false;
+                        }
+                    } else {
+                        ability.length -= ability.speed;
+                        if(ability.length <= 0) {
+                            ability.growing = true;
+                        }
+                    }
+                });
+                return abilities.filter(a => a.length > 0);
+            }
+
+            static drawAbility(ctx, ability) {
+                ctx.save();
+                ctx.translate(ability.x, ability.y);
+                ctx.rotate(ability.angle);
+                
+                if(ability.type === 'tentacle') {
+                    // タコの足を描画
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(ability.length, 0);
+                    ctx.lineWidth = ability.thickness;
+                    ctx.strokeStyle = `rgba(255, 255, 255, ${0.5 + ability.length/ability.maxLength * 0.5})`;
+                    ctx.stroke();
+                    
+                    // 吸盤を描画
+                    for(let i = 0; i < ability.length; i += 10) {
+                        ctx.beginPath();
+                        ctx.arc(i, 0, ability.thickness/2, 0, Math.PI*2);
+                        ctx.fillStyle = `rgba(200, 200, 255, ${0.3 + i/ability.length * 0.7})`;
+                        ctx.fill();
+                    }
+                } else if(ability.type === 'sword') {
+                    // 剣を描画
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.lineTo(ability.length, 0);
+                    ctx.lineWidth = ability.thickness;
+                    ctx.strokeStyle = `rgba(255, 235, 59, ${0.7 + ability.length/ability.maxLength * 0.3})`;
+                    ctx.stroke();
+                    
+                    // 剣先を描画
+                    ctx.beginPath();
+                    ctx.moveTo(ability.length, 0);
+                    ctx.lineTo(ability.length - 10, -5);
+                    ctx.lineTo(ability.length - 10, 5);
+                    ctx.closePath();
+                    ctx.fillStyle = 'rgba(255, 100, 100, 0.8)';
+                    ctx.fill();
+                }
+                
+                ctx.restore();
+            }
+        }
+
+        // 魚の種類ごとの設定
+        const FishTypes = {
+            octopus: {
+                emoji: '🐙',
+                radius: 25,
+                speed: 1.5,
+                attackCooldown: 3000,
+                specialAbility: 'octopus',
+                behavior: function(entity, player, deltaTime) {
+                    // タコの特殊な動き
+                    if(!entity.lastAttack || Date.now() - entity.lastAttack > entity.attackCooldown) {
+                        entity.specialAbilities = SpecialAbilities.createAbility('octopus', entity.x, entity.y);
+                        entity.lastAttack = Date.now();
+                    }
+                    
+                    // プレイヤーから逃げる動き
+                    const dx = entity.x - player.x;
+                    const dy = entity.y - player.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if(distance < 300) {
+                        entity.speedX = dx / distance * entity.speed * 1.5;
+                        entity.speedY = dy / distance * entity.speed * 1.5;
+                    } else {
+                        entity.speedX = (Math.random() - 0.5) * entity.speed;
+                        entity.speedY = (Math.random() - 0.5) * entity.speed;
+                    }
+                    
+                    // 特殊能力更新
+                    entity.specialAbilities = SpecialAbilities.updateAbilities(entity.specialAbilities);
+                },
+                draw: function(ctx, entity) {
+                    // 本体描画
+                    ctx.font = `${entity.radius * 2}px serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(entity.emoji, entity.x, entity.y);
+                    
+                    // 特殊能力描画
+                    entity.specialAbilities.forEach(ability => {
+                        SpecialAbilities.drawAbility(ctx, ability);
+                    });
+                }
+            },
+            swordfish: {
+                emoji: '🐡',
+                radius: 20,
+                speed: 3,
+                attackCooldown: 2000,
+                specialAbility: 'swordfish',
+                behavior: function(entity, player, deltaTime) {
+                    // 剣魚の突進攻撃
+                    if(!entity.lastAttack || Date.now() - entity.lastAttack > entity.attackCooldown) {
+                        const angle = Math.atan2(player.y - entity.y, player.x - entity.x);
+                        entity.specialAbilities = SpecialAbilities.createAbility('swordfish', entity.x, entity.y, angle);
+                        entity.lastAttack = Date.now();
+                        
+                        // 突進
+                        entity.speedX = Math.cos(angle) * entity.speed * 3;
+                        entity.speedY = Math.sin(angle) * entity.speed * 3;
+                    }
+                    
+                    // 特殊能力更新
+                    entity.specialAbilities = SpecialAbilities.updateAbilities(entity.specialAbilities);
+                },
+                draw: function(ctx, entity) {
+                    // 本体描画（角度を考慮）
+                    const angle = Math.atan2(entity.speedY, entity.speedX);
+                    
+                    ctx.save();
+                    ctx.translate(entity.x, entity.y);
+                    ctx.rotate(angle);
+                    
+                    ctx.font = `${entity.radius * 2}px serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(entity.emoji, 0, 0);
+                    
+                    ctx.restore();
+                    
+                    // 特殊能力描画
+                    entity.specialAbilities.forEach(ability => {
+                        SpecialAbilities.drawAbility(ctx, ability);
+                    });
+                }
+            },
+            pufferfish: {
+                emoji: '🐡',
+                radius: 15,
+                speed: 1,
+                behavior: function(entity, player, deltaTime) {
+                    // フグの膨張・収縮
+                    if(!entity.lastInflate) entity.lastInflate = Date.now();
+                    const inflateCycle = 3000; // 3秒周期
+                    const progress = (Date.now() - entity.lastInflate) % inflateCycle / inflateCycle;
+                    
+                    entity.currentRadius = entity.radius * (1 + 0.5 * Math.sin(progress * Math.PI * 2));
+                    
+                    // プレイヤーから逃げる
+                    const dx = entity.x - player.x;
+                    const dy = entity.y - player.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if(distance < 200) {
+                        entity.speedX = dx / distance * entity.speed * 2;
+                        entity.speedY = dy / distance * entity.speed * 2;
+                    } else {
+                        entity.speedX = (Math.random() - 0.5) * entity.speed;
+                        entity.speedY = (Math.random() - 0.5) * entity.speed;
+                    }
+                },
+                draw: function(ctx, entity) {
+                    // 膨張状態を表現
+                    ctx.font = `${entity.currentRadius * 2}px serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(entity.emoji, entity.x, entity.y);
+                    
+                    // トゲを描画
+                    if(entity.currentRadius > entity.radius * 1.3) {
+                        const spikeCount = 12;
+                        for(let i = 0; i < spikeCount; i++) {
+                            const angle = (i / spikeCount) * Math.PI * 2;
+                            const spikeLength = 5 + (entity.currentRadius - entity.radius);
+                            
+                            ctx.beginPath();
+                            ctx.moveTo(
+                                entity.x + Math.cos(angle) * entity.currentRadius,
+                                entity.y + Math.sin(angle) * entity.currentRadius
+                            );
+                            ctx.lineTo(
+                                entity.x + Math.cos(angle) * (entity.currentRadius + spikeLength),
+                                entity.y + Math.sin(angle) * (entity.currentRadius + spikeLength)
+                            );
+                            ctx.lineWidth = 2;
+                            ctx.strokeStyle = 'rgba(255, 255, 255, 0.7)';
+                            ctx.stroke();
+                        }
+                    }
+                }
+            }
+        };
+
+        // ゲームループ内のエンティティ更新処理を修正
+        function updateEntities(deltaTime) {
+            GameState.entities.forEach(entity => {
+                if(FishTypes[entity.type] && FishTypes[entity.type].behavior) {
+                    FishTypes[entity.type].behavior(entity, GameState.player, deltaTime);
+                } else {
+                    // デフォルトの動き
+                    entity.x += entity.speedX;
+                    entity.y += entity.speedY;
+                }
+                
+                // 画面端チェック
+                if(entity.x < -entity.radius * 3 || 
+                   entity.x > elements.canvas.width + entity.radius * 3 ||
+                   entity.y < -entity.radius * 3 || 
+                   entity.y > elements.canvas.height + entity.radius * 3) {
+                    entity.dead = true;
+                }
+            });
+            
+            // 死亡したエンティティを削除
+            GameState.entities = GameState.entities.filter(e => !e.dead);
+        }
+
+        // 描画処理を修正
+        function render() {
+            const ctx = elements.ctx;
+            const canvas = elements.canvas;
+            
+            // 背景クリア
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 背景描画（泡）
+            drawBubbles();
+            
+            // エンティティ描画
+            GameState.entities.forEach(entity => {
+                if(FishTypes[entity.type] && FishTypes[entity.type].draw) {
+                    FishTypes[entity.type].draw(ctx, entity);
+                } else {
+                    // デフォルトの描画
+                    ctx.font = `${entity.radius * 2}px serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(entity.emoji, entity.x, entity.y);
+                }
+            });
+            
+            // プレイヤー描画
+            ctx.font = `${GameState.player.radius * 2}px serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(EMOJI_MAP.player.stages[GameState.player.stage], GameState.player.x, GameState.player.y);
+        }
+
+        // 衝突判定を修正（特殊能力も考慮）
+        function checkCollisions() {
+            const player = GameState.player;
+            
+            for(let i = GameState.entities.length - 1; i >= 0; i--) {
+                const entity = GameState.entities[i];
+                let collided = false;
+                
+                // 本体との衝突チェック
+                const dx = player.x - entity.x;
+                const dy = player.y - entity.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const minDistance = player.radius + (entity.currentRadius || entity.radius);
+                
+                if(distance < minDistance) {
+                    collided = true;
+                }
+                
+                // 特殊能力との衝突チェック
+                if(!collided && entity.specialAbilities) {
+                    for(const ability of entity.specialAbilities) {
+                        if(ability.type === 'tentacle' && ability.length > ability.maxLength * 0.7) {
+                            const tentacleEndX = entity.x + Math.cos(ability.angle) * ability.length;
+                            const tentacleEndY = entity.y + Math.sin(ability.angle) * ability.length;
+                            const tentacleDx = player.x - tentacleEndX;
+                            const tentacleDy = player.y - tentacleEndY;
+                            const tentacleDistance = Math.sqrt(tentacleDx * tentacleDx + tentacleDy * tentacleDy);
+                            
+                            if(tentacleDistance < player.radius + ability.thickness) {
+                                collided = true;
+                                break;
+                            }
+                        } else if(ability.type === 'sword' && ability.length > ability.maxLength * 0.5) {
+                            const swordEndX = entity.x + Math.cos(ability.angle) * ability.length;
+                            const swordEndY = entity.y + Math.sin(ability.angle) * ability.length;
+                            const swordDx = player.x - swordEndX;
+                            const swordDy = player.y - swordEndY;
+                            const swordDistance = Math.sqrt(swordDx * swordDx + swordDy * swordDy);
+                            
+                            if(swordDistance < player.radius + ability.thickness) {
+                                collided = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                
+                if(collided) {
+                    if(entity.type === 'prey') {
+                        handlePreyCollision(entity, i);
+                    } else {
+                        handleEnemyCollision(entity, i);
+                    }
+                }
+            }
+        }
+
+        // エンティティ生成処理を修正
+        function spawnEntities(timestamp) {
+            if(timestamp - GameState.lastSpawnTime < getSpawnInterval()) return;
+            
+            const types = [
+                { type: 'octopus', weight: 1 },
+                { type: 'swordfish', weight: 1 },
+                { type: 'pufferfish', weight: 1 },
+                { type: 'prey', weight: 3 }
+            ];
+            
+            const totalWeight = types.reduce((sum, t) => sum + t.weight, 0);
+            let random = Math.random() * totalWeight;
+            let selectedType = 'prey';
+            
+            for(const t of types) {
+                if(random < t.weight) {
+                    selectedType = t.type;
+                    break;
+                }
+                random -= t.weight;
+            }
+            
+            const entity = {
+                type: selectedType,
+                x: Math.random() < 0.5 ? -50 : elements.canvas.width + 50,
+                y: Math.random() * elements.canvas.height,
+                radius: FishTypes[selectedType]?.radius || 15,
+                speed: FishTypes[selectedType]?.speed || 2,
+                speedX: (Math.random() - 0.5) * 2,
+                speedY: (Math.random() - 0.5) * 2,
+                specialAbilities: []
+            };
+            
+            // 魚種ごとの初期化
+            if(FishTypes[selectedType]?.init) {
+                FishTypes[selectedType].init(entity);
+            }
+            
+            GameState.entities.push(entity);
+            GameState.lastSpawnTime = timestamp;
+        }
+
+        /* その他の関数（init, startGame, gameLoopなど）は前回と同じ */
+
+        // 初期化時に魚種を登録
+        function init() {
+            // ...（前回と同じ初期化処理）
+            
+            // 魚種の絵文字マップを更新
+            EMOJI_MAP.enemy.types = [
+                { emoji: '🐙', type: 'octopus' },
+                { emoji: '🐡', type: 'swordfish' },
+                { emoji: '🐡', type: 'pufferfish' }
+            ];
+        }
+    </script>
+</body>
+</html>
