@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#003f5c">
     <title>海の大冒険！魚のエボリューション</title>
     <style>
         * {
@@ -150,10 +153,10 @@
 
         #joystick {
             position: absolute;
-            bottom: 30px;
-            right: 30px;
-            width: 120px;
-            height: 120px;
+            bottom: 20px;
+            right: 20px;
+            width: 100px;
+            height: 100px;
             background: rgba(255, 255, 255, 0.1);
             border: 3px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
@@ -167,14 +170,42 @@
             position: absolute;
             top: 50%;
             left: 50%;
-            width: 40px;
-            height: 40px;
+            width: 35px;
+            height: 35px;
             background: linear-gradient(45deg, #00ffff, #0080ff);
             border: 2px solid rgba(255, 255, 255, 0.8);
             border-radius: 50%;
             transform: translate(-50%, -50%);
             transition: all 0.1s ease;
             box-shadow: 0 4px 15px rgba(0, 255, 255, 0.4);
+        }
+
+        @media (max-width: 768px) {
+            .ui-panel {
+                font-size: 14px;
+                padding: 10px 15px;
+            }
+            
+            #joystick {
+                width: 80px;
+                height: 80px;
+                bottom: 15px;
+                right: 15px;
+            }
+            
+            #joystickKnob {
+                width: 28px;
+                height: 28px;
+            }
+            
+            .screen h1 {
+                font-size: 36px;
+            }
+            
+            .screen p {
+                font-size: 16px;
+                padding: 0 20px;
+            }
         }
 
         #joystickKnob.active {
@@ -273,12 +304,15 @@
             isInvincible: false,
             invincibilityTime: 0,
             eatingAnimations: [],
-            bloodEffects: []
+            bloodEffects: [],
+            swallowingAnimations: [],
+            playerMouthOpen: false,
+            playerMouthAnimation: 0
         };
 
         // 海洋生物の定義
         const CreatureTypes = {
-            // レベル1-2：小型生物
+            // レベル1：小型生物（危険も含む）
             PLANKTON: {
                 name: 'プランクトン',
                 emoji: '🦠',
@@ -298,9 +332,64 @@
                 value: 10,
                 behavior: 'schooling',
                 description: '群れで泳ぐ小さな魚。栄養価が高い！',
-                color: ['#FFD700', '#FF6347', '#32CD32'],
+                color: ['#FFD700', '#FF6347', '#32CD32', '#00BFFF', '#FF69B4'],
                 level: 1
             },
+            TOXIC_FISH: {
+                name: '毒魚',
+                emoji: '🐟',
+                size: 9,
+                speed: 1.5,
+                value: -25,
+                behavior: 'toxic_swimming',
+                description: '美しいが毒を持つ魚！触ると危険！',
+                color: ['#FF1493', '#9400D3', '#FF4500'],
+                level: 1,
+                dangerous: true,
+                isToxic: true
+            },
+            POISONOUS_ANEMONE: {
+                name: '毒イソギンチャク',
+                emoji: '🌺',
+                size: 12,
+                speed: 0,
+                value: -30,
+                behavior: 'anemone_trap',
+                description: '美しいが触ると毒で麻痺する！',
+                color: ['#FF69B4', '#FF1493', '#DA70D6'],
+                level: 1,
+                dangerous: true,
+                isToxic: true,
+                isStationary: true
+            },
+            BABY_SHARK: {
+                name: '子サメ',
+                emoji: '🦈',
+                size: 14,
+                speed: 3,
+                value: -20,
+                behavior: 'aggressive_chase',
+                description: '小さくても凶暴！素早く追いかけてくる！',
+                color: ['#708090', '#A9A9A9', '#696969'],
+                level: 1,
+                dangerous: true,
+                isAggressive: true
+            },
+            STINGRAY: {
+                name: '小エイ',
+                emoji: '⚡',
+                size: 16,
+                speed: 2,
+                value: -15,
+                behavior: 'sting_attack',
+                description: '砂に隠れて毒針で攻撃！',
+                color: ['#D2B48C', '#DEB887', '#F5DEB3'],
+                level: 1,
+                dangerous: true,
+                hasStinger: true
+            },
+            
+            // レベル1-2：通常の小型生物
             SHRIMP: {
                 name: 'エビ',
                 emoji: '🦐',
@@ -316,10 +405,10 @@
                 name: 'カニ',
                 emoji: '🦀',
                 size: 12,
-                speed: 1,
+                speed: 1.5,
                 value: 20,
                 behavior: 'sideways_crawling',
-                description: '横歩きするカニ。ハサミで反撃してくる！',
+                description: '横歩きするカニ。ハサミで挟む！',
                 color: ['#FF4500', '#DC143C', '#B22222'],
                 level: 2,
                 hasClaws: true
@@ -751,13 +840,55 @@
             updateParticles(deltaTime);
             updateBubbles(deltaTime);
             updateEatingAnimations(deltaTime);
+            updateSwallowingAnimations(deltaTime);
             updateBloodEffects(deltaTime);
             updateInvincibility(deltaTime);
+            updatePlayerMouth(deltaTime);
             spawnEntities();
             checkCollisions();
             updateEnvironment(deltaTime);
             updateOxygen(deltaTime);
             checkLevelUp();
+        }
+
+        // 飲み込みアニメーション更新
+        function updateSwallowingAnimations(deltaTime) {
+            GameState.swallowingAnimations = GameState.swallowingAnimations.filter(anim => {
+                anim.life -= deltaTime;
+                anim.progress = 1 - (anim.life / anim.maxLife);
+                
+                // フェーズ管理
+                if (anim.progress < 0.3) {
+                    anim.phase = 'approaching';
+                    // 獲物が口に向かって移動
+                    const lerpX = anim.originalPreyX + (anim.playerX - anim.originalPreyX) * (anim.progress / 0.3);
+                    const lerpY = anim.originalPreyY + (anim.playerY - anim.originalPreyY) * (anim.progress / 0.3);
+                    anim.preyX = lerpX;
+                    anim.preyY = lerpY;
+                } else if (anim.progress < 0.8) {
+                    anim.phase = 'entering';
+                    // 口の中に入っていく
+                    anim.preyX = anim.playerX;
+                    anim.preyY = anim.playerY;
+                    anim.scale = 1 - ((anim.progress - 0.3) / 0.5) * 0.8;
+                } else {
+                    anim.phase = 'swallowed';
+                    anim.scale = 0.2;
+                }
+                
+                return anim.life > 0;
+            });
+        }
+
+        // プレイヤーの口のアニメーション更新
+        function updatePlayerMouth(deltaTime) {
+            if (GameState.playerMouthOpen) {
+                GameState.playerMouthAnimation += deltaTime * 0.01;
+                if (GameState.playerMouthAnimation > 1) {
+                    GameState.playerMouthOpen = false;
+                    GameState.playerMouthAnimation = 0;
+                }
+            }
         }
 
         // 食べるアニメーション更新
@@ -932,6 +1063,18 @@
                     break;
                 case 'power_up':
                     updatePowerUp(entity);
+                    break;
+                case 'toxic_swimming':
+                    updateToxicSwimming(entity);
+                    break;
+                case 'anemone_trap':
+                    updateAnemoneTraps(entity);
+                    break;
+                case 'aggressive_chase':
+                    updateAggressiveChase(entity);
+                    break;
+                case 'sting_attack':
+                    updateStingAttack(entity);
                     break;
             }
             
@@ -1386,6 +1529,103 @@
             updateDriftingBehavior(entity);
         }
 
+        // 毒魚の行動
+        function updateToxicSwimming(entity) {
+            updateWanderingBehavior(entity);
+            
+            // 毒の泡を時々放出
+            if (Math.random() < 0.002) {
+                createToxicBubbles(entity.x, entity.y);
+            }
+            
+            // 美しく光る
+            entity.glowTime = (entity.glowTime || 0) + 0.05;
+        }
+
+        // イソギンチャクの罠
+        function updateAnemoneTraps(entity) {
+            entity.vx = 0;
+            entity.vy = 0;
+            
+            // ゆらゆら揺れる
+            entity.swayTime = (entity.swayTime || 0) + 0.03;
+            entity.sway = Math.sin(entity.swayTime) * 5;
+            
+            // プレイヤーが近づくと誘引
+            const dx = GameState.player.x - entity.x;
+            const dy = GameState.player.y - entity.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < 60) {
+                // 誘引効果
+                entity.isLuring = true;
+                if (Math.random() < 0.01) {
+                    createLureParticles(entity.x, entity.y);
+                }
+            } else {
+                entity.isLuring = false;
+            }
+        }
+
+        // 子サメの攻撃的追跡
+        function updateAggressiveChase(entity) {
+            const dx = GameState.player.x - entity.x;
+            const dy = GameState.player.y - entity.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist < 120) {
+                // 攻撃的に追跡
+                const speed = entity.speed * 1.3;
+                entity.vx = (dx / dist) * speed;
+                entity.vy = (dy / dist) * speed;
+                entity.isChasing = true;
+                
+                // 血の匂いを感知（プレイヤーの体力が低い場合）
+                if (GameState.player.health < 50) {
+                    entity.vx *= 1.5;
+                    entity.vy *= 1.5;
+                }
+            } else {
+                entity.isChasing = false;
+                updateWanderingBehavior(entity);
+            }
+        }
+
+        // エイの毒針攻撃
+        function updateStingAttack(entity) {
+            const dx = GameState.player.x - entity.x;
+            const dy = GameState.player.y - entity.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            // 砂に隠れる行動
+            if (!entity.isHiding && Math.random() < 0.003) {
+                entity.isHiding = true;
+                entity.hideTime = Date.now();
+            }
+            
+            if (entity.isHiding) {
+                entity.vx = 0;
+                entity.vy = 0;
+                
+                // 3秒間隠れる
+                if (Date.now() - entity.hideTime > 3000) {
+                    entity.isHiding = false;
+                }
+                
+                // プレイヤーが近づいたら攻撃
+                if (dist < 50 && !entity.stingCooldown) {
+                    entity.stingCooldown = 120; // 2秒
+                    createStingerAttack(entity.x, entity.y, dx, dy);
+                }
+            } else {
+                updateWanderingBehavior(entity);
+            }
+            
+            if (entity.stingCooldown) {
+                entity.stingCooldown--;
+            }
+        }
+
         // パーティクル更新
         function updateParticles(deltaTime) {
             GameState.particles = GameState.particles.filter(particle => {
@@ -1582,8 +1822,15 @@
         function handlePreyEaten(prey, index) {
             const creatureType = CreatureTypes[prey.type];
             
-            // 食べるアニメーション
-            createEatingAnimation(GameState.player.x, GameState.player.y, prey.x, prey.y, prey.radius);
+            // 飲み込みアニメーション（食べられる生物のみ）
+            createSwallowingAnimation(
+                GameState.player.x, 
+                GameState.player.y, 
+                prey.x, 
+                prey.y, 
+                prey.radius, 
+                prey.color
+            );
             
             // スコア増加
             GameState.score += creatureType.value;
@@ -1618,7 +1865,20 @@
         function handleDangerousContact(entity) {
             const creatureType = CreatureTypes[entity.type];
             
-            if (creatureType.hasSpines || creatureType.type === 'SEA_URCHIN') {
+            if (creatureType.isToxic) {
+                // 毒による継続ダメージ
+                GameState.player.health -= 25;
+                createParticleEffect(entity.x, entity.y, '#9400D3');
+                // 毒エフェクト
+                for (let i = 0; i < 5; i++) {
+                    setTimeout(() => {
+                        if (GameState.gameRunning) {
+                            GameState.player.health -= 3;
+                            createParticleEffect(GameState.player.x, GameState.player.y, '#8B008B');
+                        }
+                    }, i * 500);
+                }
+            } else if (creatureType.hasSpines || creatureType.type === 'SEA_URCHIN') {
                 // トゲによるダメージ
                 GameState.player.health -= 15;
                 createParticleEffect(entity.x, entity.y, '#8B008B');
@@ -1630,6 +1890,18 @@
                 // クラゲの毒
                 GameState.player.health -= 10;
                 createParticleEffect(entity.x, entity.y, '#FFB6C1');
+            } else if (creatureType.hasClaws) {
+                // カニのハサミ
+                GameState.player.health -= 12;
+                createParticleEffect(entity.x, entity.y, '#FF4500');
+            } else if (creatureType.isAggressive) {
+                // 攻撃的な生物
+                GameState.player.health -= 18;
+                createBloodEffect(GameState.player.x, GameState.player.y, 1);
+            } else if (creatureType.hasStinger) {
+                // 毒針攻撃
+                GameState.player.health -= 22;
+                createParticleEffect(entity.x, entity.y, '#8B4513');
             } else {
                 // 一般的な危険生物
                 GameState.player.health -= 10;
@@ -1835,6 +2107,84 @@
             });
         }
 
+        // 飲み込みアニメーション作成
+        function createSwallowingAnimation(playerX, playerY, preyX, preyY, preySize, preyColor) {
+            GameState.swallowingAnimations.push({
+                playerX: playerX,
+                playerY: playerY,
+                preyX: preyX,
+                preyY: preyY,
+                originalPreyX: preyX,
+                originalPreyY: preyY,
+                preySize: preySize,
+                preyColor: preyColor,
+                progress: 0,
+                phase: 'approaching', // approaching -> entering -> swallowed
+                life: 1200,
+                maxLife: 1200,
+                scale: 1
+            });
+            
+            // プレイヤーの口を開く
+            GameState.playerMouthOpen = true;
+            GameState.playerMouthAnimation = 0;
+        }
+
+        // 毒の泡作成
+        function createToxicBubbles(x, y) {
+            for (let i = 0; i < 8; i++) {
+                GameState.particles.push({
+                    x: x + (Math.random() - 0.5) * 20,
+                    y: y + (Math.random() - 0.5) * 20,
+                    vx: (Math.random() - 0.5) * 2,
+                    vy: (Math.random() - 0.5) * 2,
+                    color: '#9400D3',
+                    life: 3000,
+                    maxLife: 3000,
+                    alpha: 0.7,
+                    size: Math.random() * 6 + 3,
+                    isToxic: true
+                });
+            }
+        }
+
+        // 誘引パーティクル作成
+        function createLureParticles(x, y) {
+            for (let i = 0; i < 5; i++) {
+                GameState.particles.push({
+                    x: x + (Math.random() - 0.5) * 15,
+                    y: y + (Math.random() - 0.5) * 15,
+                    vx: (Math.random() - 0.5),
+                    vy: -Math.random() * 2,
+                    color: '#FFB6C1',
+                    life: 2000,
+                    maxLife: 2000,
+                    alpha: 0.8,
+                    size: Math.random() * 4 + 2,
+                    isLure: true
+                });
+            }
+        }
+
+        // 毒針攻撃作成
+        function createStingerAttack(x, y, dx, dy) {
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            if (dist > 0) {
+                GameState.particles.push({
+                    x: x,
+                    y: y,
+                    vx: (dx / dist) * 8,
+                    vy: (dy / dist) * 8,
+                    color: '#8B4513',
+                    life: 500,
+                    maxLife: 500,
+                    alpha: 1,
+                    size: 3,
+                    isStinger: true
+                });
+            }
+        }
+
         // 泡作成
         function createBubble() {
             GameState.bubbles.push({
@@ -1876,6 +2226,9 @@
             
             // 食べるアニメーションを描画
             drawEatingAnimations(ctx);
+            
+            // 飲み込みアニメーションを描画
+            drawSwallowingAnimations(ctx);
             
             // プレイヤーを描画
             drawPlayer(ctx);
@@ -2021,6 +2374,44 @@
             });
         }
 
+        // 飲み込みアニメーション描画
+        function drawSwallowingAnimations(ctx) {
+            GameState.swallowingAnimations.forEach(anim => {
+                ctx.save();
+                ctx.translate(anim.preyX, anim.preyY);
+                ctx.scale(anim.scale, anim.scale);
+                
+                // 透明度調整
+                if (anim.phase === 'swallowed') {
+                    ctx.globalAlpha = 0.3;
+                } else if (anim.phase === 'entering') {
+                    ctx.globalAlpha = 0.7;
+                } else {
+                    ctx.globalAlpha = 1;
+                }
+                
+                // 獲物を描画
+                const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, anim.preySize);
+                gradient.addColorStop(0, anim.preyColor);
+                gradient.addColorStop(1, anim.preyColor + '80'); // 半透明
+                
+                ctx.fillStyle = gradient;
+                ctx.beginPath();
+                ctx.arc(0, 0, anim.preySize, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // 進入エフェクト
+                if (anim.phase === 'entering') {
+                    ctx.strokeStyle = '#FFFFFF';
+                    ctx.lineWidth = 2;
+                    ctx.globalAlpha = 0.5;
+                    ctx.stroke();
+                }
+                
+                ctx.restore();
+            });
+        }
+
         // エンティティ描画
         function drawEntities(ctx) {
             GameState.entities.forEach(entity => {
@@ -2042,6 +2433,241 @@
                 ctx.rotate(entity.sway * 0.01);
             }
             
+            // 特別な描画（種類別の詳細な描画）
+            switch (entity.type) {
+                case 'OCTOPUS':
+                    drawDetailedOctopus(ctx, entity);
+                    break;
+                case 'SQUID':
+                    drawDetailedSquid(ctx, entity);
+                    break;
+                case 'JELLYFISH':
+                    drawDetailedJellyfish(ctx, entity);
+                    break;
+                case 'SHARK':
+                case 'BABY_SHARK':
+                    drawDetailedShark(ctx, entity);
+                    break;
+                case 'PUFFERFISH':
+                    drawDetailedPufferfish(ctx, entity);
+                    break;
+                case 'TOXIC_FISH':
+                    drawDetailedToxicFish(ctx, entity);
+                    break;
+                case 'POISONOUS_ANEMONE':
+                    drawDetailedAnemone(ctx, entity);
+                    break;
+                case 'STINGRAY':
+                    drawDetailedStingray(ctx, entity);
+                    break;
+                case 'CRAB':
+                    drawDetailedCrab(ctx, entity);
+                    break;
+                case 'SMALL_FISH':
+                case 'MEDIUM_FISH':
+                case 'HORSE_MACKEREL':
+                    drawDetailedFish(ctx, entity);
+                    break;
+                case 'SEA_TURTLE':
+                    drawDetailedTurtle(ctx, entity);
+                    break;
+                case 'WHALE':
+                case 'SMALL_WHALE':
+                    drawDetailedWhale(ctx, entity);
+                    break;
+                default:
+                    drawBasicCreature(ctx, entity);
+            }
+            
+            ctx.restore();
+        }
+
+        // 詳細なタコ描画
+        function drawDetailedOctopus(ctx, entity) {
+            // 体（グラデーション）
+            const bodyGradient = ctx.createRadialGradient(-entity.radius * 0.2, -entity.radius * 0.2, 0, 0, 0, entity.radius);
+            bodyGradient.addColorStop(0, entity.color);
+            bodyGradient.addColorStop(1, adjustColor(entity.color, -50));
+            
+            ctx.fillStyle = bodyGradient;
+            ctx.beginPath();
+            ctx.arc(0, 0, entity.radius, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 触手描画（アニメーション対応）
+            if (entity.tentacles) {
+                entity.tentacles.forEach(tentacle => {
+                    ctx.save();
+                    ctx.rotate(tentacle.angle);
+                    ctx.strokeStyle = adjustColor(entity.color, -20);
+                    ctx.lineWidth = 6;
+                    ctx.lineCap = 'round';
+                    
+                    // 触手の曲線
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    for (let i = 0; i <= tentacle.length; i += 5) {
+                        const curve = Math.sin(i * 0.2) * 8;
+                        ctx.lineTo(i + curve, 0);
+                    }
+                    ctx.stroke();
+                    
+                    // 吸盤
+                    for (let i = 10; i < tentacle.length; i += 15) {
+                        ctx.fillStyle = adjustColor(entity.color, -30);
+                        ctx.beginPath();
+                        ctx.arc(i, 0, 2, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                    
+                    ctx.restore();
+                });
+            }
+            
+            // 目
+            drawEyesRotated(ctx, entity);
+        }
+
+        // 詳細な毒魚描画
+        function drawDetailedToxicFish(ctx, entity) {
+            // 警告色の美しいグラデーション
+            const bodyGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, entity.radius);
+            bodyGradient.addColorStop(0, '#FF1493');
+            bodyGradient.addColorStop(0.5, '#9400D3');
+            bodyGradient.addColorStop(1, '#4B0082');
+            
+            ctx.fillStyle = bodyGradient;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, entity.radius, entity.radius * 0.7, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 毒の斑点
+            ctx.fillStyle = '#FFFF00';
+            for (let i = 0; i < 5; i++) {
+                const spotX = (Math.random() - 0.5) * entity.radius;
+                const spotY = (Math.random() - 0.5) * entity.radius * 0.7;
+                ctx.beginPath();
+                ctx.arc(spotX, spotY, 2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
+            // 毒のオーラ
+            if (entity.glowTime) {
+                const glowIntensity = Math.sin(entity.glowTime) * 0.3 + 0.7;
+                ctx.save();
+                ctx.globalAlpha = glowIntensity * 0.3;
+                ctx.fillStyle = '#9400D3';
+                ctx.beginPath();
+                ctx.arc(0, 0, entity.radius + 5, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+            
+            drawBasicFishFeatures(ctx, entity);
+        }
+
+        // 詳細なイソギンチャク描画
+        function drawDetailedAnemone(ctx, entity) {
+            // 基部
+            ctx.fillStyle = adjustColor(entity.color, -30);
+            ctx.beginPath();
+            ctx.ellipse(0, entity.radius * 0.3, entity.radius * 0.8, entity.radius * 0.4, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 触手
+            const numTentacles = 12;
+            for (let i = 0; i < numTentacles; i++) {
+                const angle = (i / numTentacles) * Math.PI * 2;
+                const tentacleLength = entity.radius * 0.8;
+                const sway = entity.sway || 0;
+                
+                ctx.save();
+                ctx.rotate(angle + sway * 0.01);
+                
+                ctx.strokeStyle = entity.color;
+                ctx.lineWidth = 4;
+                ctx.lineCap = 'round';
+                
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                for (let j = 0; j <= tentacleLength; j += 3) {
+                    const wave = Math.sin(j * 0.3 + Date.now() * 0.005) * 2;
+                    ctx.lineTo(wave, -j);
+                }
+                ctx.stroke();
+                
+                ctx.restore();
+            }
+            
+            // 誘引光
+            if (entity.isLuring) {
+                ctx.save();
+                ctx.globalAlpha = 0.6;
+                const lureGradient = ctx.createRadialGradient(0, 0, 0, 0, 0, entity.radius + 10);
+                lureGradient.addColorStop(0, '#FFB6C1');
+                lureGradient.addColorStop(1, 'transparent');
+                ctx.fillStyle = lureGradient;
+                ctx.beginPath();
+                ctx.arc(0, 0, entity.radius + 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // 基本的な魚の特徴描画
+        function drawBasicFishFeatures(ctx, entity) {
+            // 尻尾
+            ctx.fillStyle = adjustColor(entity.color, -20);
+            ctx.beginPath();
+            ctx.moveTo(-entity.radius, 0);
+            ctx.lineTo(-entity.radius * 1.5, -entity.radius * 0.5);
+            ctx.lineTo(-entity.radius * 1.2, 0);
+            ctx.lineTo(-entity.radius * 1.5, entity.radius * 0.5);
+            ctx.closePath();
+            ctx.fill();
+            
+            // ひれ
+            ctx.beginPath();
+            ctx.ellipse(-entity.radius * 0.2, entity.radius * 0.5, entity.radius * 0.3, entity.radius * 0.2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 目
+            drawEyesRotated(ctx, entity);
+        }
+
+        // 詳細な魚描画
+        function drawDetailedFish(ctx, entity) {
+            // 美しいグラデーション
+            const bodyGradient = ctx.createRadialGradient(-entity.radius * 0.3, -entity.radius * 0.2, 0, 0, 0, entity.radius);
+            bodyGradient.addColorStop(0, entity.color);
+            bodyGradient.addColorStop(0.7, entity.color);
+            bodyGradient.addColorStop(1, adjustColor(entity.color, -40));
+            
+            ctx.fillStyle = bodyGradient;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, entity.radius, entity.radius * 0.7, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 鱗の模様
+            ctx.save();
+            ctx.globalAlpha = 0.4;
+            ctx.strokeStyle = adjustColor(entity.color, 50);
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 3; i++) {
+                const scaleX = -entity.radius * 0.6 + (i * entity.radius * 0.3);
+                ctx.beginPath();
+                ctx.arc(scaleX, 0, entity.radius * 0.2, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            ctx.restore();
+            
+            drawBasicFishFeatures(ctx, entity);
+        }
+
+        // 基本的な生物描画（フォールバック）
+        function drawBasicCreature(ctx, entity) {
+            const creatureType = CreatureTypes[entity.type];
+            
             // 基本の体
             ctx.fillStyle = entity.color;
             ctx.beginPath();
@@ -2054,37 +2680,122 @@
             }
             ctx.fill();
             
-            // 特別な描画
-            switch (entity.type) {
-                case 'OCTOPUS':
-                    drawOctopus(ctx, entity);
-                    break;
-                case 'SQUID':
-                    drawSquid(ctx, entity);
-                    break;
-                case 'JELLYFISH':
-                    drawJellyfish(ctx, entity);
-                    break;
-                case 'SHARK':
-                    drawShark(ctx, entity);
-                    break;
-                case 'STARFISH':
-                    drawStarfish(ctx, entity);
-                    break;
-                case 'SMALL_FISH':
-                case 'MEDIUM_FISH':
-                    drawBasicFishRotated(ctx, entity);
-                    break;
-                default:
-                    drawBasicFishRotated(ctx, entity);
-            }
-            
-            // 目を描画（回転対応）
-            if (entity.type !== 'STARFISH' && entity.type !== 'TREASURE') {
+            // 目を描画
+            if (entity.type !== 'TREASURE' && !entity.isStationary) {
                 drawEyesRotated(ctx, entity);
             }
+        }
+
+        // その他の詳細描画関数は既存のものを使用
+        function drawDetailedShark(ctx, entity) { drawShark(ctx, entity); }
+        function drawDetailedSquid(ctx, entity) { drawSquid(ctx, entity); }
+        function drawDetailedJellyfish(ctx, entity) { drawJellyfish(ctx, entity); }
+        function drawDetailedPufferfish(ctx, entity) { 
+            drawBasicCreature(ctx, entity);
+            if (entity.isInflated) {
+                // 膨らんだ時の針
+                ctx.strokeStyle = '#8B0000';
+                ctx.lineWidth = 2;
+                for (let i = 0; i < 12; i++) {
+                    const angle = (i / 12) * Math.PI * 2;
+                    ctx.save();
+                    ctx.rotate(angle);
+                    ctx.beginPath();
+                    ctx.moveTo(entity.radius * 0.8, 0);
+                    ctx.lineTo(entity.radius * 1.2, 0);
+                    ctx.stroke();
+                    ctx.restore();
+                }
+            }
+        }
+        function drawDetailedStingray(ctx, entity) {
+            // エイの平たい体
+            ctx.fillStyle = entity.color;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, entity.radius * 1.2, entity.radius * 0.8, 0, 0, Math.PI * 2);
+            ctx.fill();
             
-            ctx.restore();
+            // 尻尾
+            ctx.strokeStyle = entity.color;
+            ctx.lineWidth = 4;
+            ctx.beginPath();
+            ctx.moveTo(-entity.radius, 0);
+            ctx.lineTo(-entity.radius * 2, 0);
+            ctx.stroke();
+        }
+        function drawDetailedCrab(ctx, entity) {
+            drawBasicCreature(ctx, entity);
+            
+            // ハサミ
+            if (entity.isAttacking) {
+                ctx.fillStyle = '#FF0000';
+            } else {
+                ctx.fillStyle = adjustColor(entity.color, -20);
+            }
+            
+            // 左のハサミ
+            ctx.beginPath();
+            ctx.ellipse(entity.radius * 0.8, -entity.radius * 0.6, entity.radius * 0.3, entity.radius * 0.2, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 右のハサミ
+            ctx.beginPath();
+            ctx.ellipse(entity.radius * 0.8, entity.radius * 0.6, entity.radius * 0.3, entity.radius * 0.2, 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        function drawDetailedTurtle(ctx, entity) {
+            // 甲羅
+            ctx.fillStyle = entity.color;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, entity.radius, entity.radius * 0.8, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 甲羅の模様
+            ctx.strokeStyle = adjustColor(entity.color, -40);
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 6; i++) {
+                const angle = (i / 6) * Math.PI * 2;
+                ctx.save();
+                ctx.rotate(angle);
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                ctx.lineTo(entity.radius * 0.7, 0);
+                ctx.stroke();
+                ctx.restore();
+            }
+            
+            // 頭
+            ctx.fillStyle = adjustColor(entity.color, 20);
+            ctx.beginPath();
+            ctx.arc(entity.radius * 0.6, 0, entity.radius * 0.3, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        function drawDetailedWhale(ctx, entity) {
+            // 大きな体
+            const bodyGradient = ctx.createRadialGradient(0, -entity.radius * 0.3, 0, 0, 0, entity.radius);
+            bodyGradient.addColorStop(0, adjustColor(entity.color, 30));
+            bodyGradient.addColorStop(1, entity.color);
+            
+            ctx.fillStyle = bodyGradient;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, entity.radius, entity.radius * 0.6, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 尻尾
+            ctx.fillStyle = adjustColor(entity.color, -20);
+            ctx.beginPath();
+            ctx.moveTo(-entity.radius, 0);
+            ctx.lineTo(-entity.radius * 1.3, -entity.radius * 0.8);
+            ctx.lineTo(-entity.radius * 1.1, 0);
+            ctx.lineTo(-entity.radius * 1.3, entity.radius * 0.8);
+            ctx.closePath();
+            ctx.fill();
+            
+            // 目
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(entity.radius * 0.3, -entity.radius * 0.2, entity.radius * 0.08, 0, Math.PI * 2);
+            ctx.fill();
         }
 
         // 回転対応の基本的な魚描画
@@ -2326,14 +3037,37 @@
             ctx.arc(0, 0, player.radius + 10, 0, Math.PI * 2);
             ctx.fill();
             
-            // プレイヤーの体（楕円形にして魚らしく）
-            ctx.fillStyle = player.color;
+            // プレイヤーの体（美しいグラデーション）
+            const bodyGradient = ctx.createRadialGradient(-player.radius * 0.3, -player.radius * 0.2, 0, 0, 0, player.radius);
+            bodyGradient.addColorStop(0, player.color);
+            bodyGradient.addColorStop(0.7, player.color);
+            const darkerColor = adjustColor(player.color, -40);
+            bodyGradient.addColorStop(1, darkerColor);
+            
+            ctx.fillStyle = bodyGradient;
             ctx.beginPath();
             ctx.ellipse(0, 0, player.radius, player.radius * 0.7, 0, 0, Math.PI * 2);
             ctx.fill();
             
+            // 鱗の模様
+            ctx.save();
+            ctx.globalAlpha = 0.3;
+            ctx.strokeStyle = adjustColor(player.color, 30);
+            ctx.lineWidth = 1;
+            for (let i = 0; i < 3; i++) {
+                const scaleX = -player.radius * 0.8 + (i * player.radius * 0.4);
+                ctx.beginPath();
+                ctx.arc(scaleX, 0, player.radius * 0.3, 0, Math.PI * 2);
+                ctx.stroke();
+            }
+            ctx.restore();
+            
             // 尻尾（魚の後ろ側）
-            ctx.fillStyle = player.color;
+            const tailGradient = ctx.createLinearGradient(-player.radius * 1.5, 0, -player.radius, 0);
+            tailGradient.addColorStop(0, adjustColor(player.color, -20));
+            tailGradient.addColorStop(1, player.color);
+            
+            ctx.fillStyle = tailGradient;
             ctx.beginPath();
             ctx.moveTo(-player.radius, 0);
             ctx.lineTo(-player.radius * 1.5, -player.radius * 0.4);
@@ -2343,6 +3077,7 @@
             ctx.fill();
             
             // 背ひれ
+            ctx.fillStyle = adjustColor(player.color, -30);
             ctx.beginPath();
             ctx.moveTo(-player.radius * 0.3, -player.radius * 0.7);
             ctx.lineTo(-player.radius * 0.1, -player.radius * 1.1);
@@ -2354,6 +3089,17 @@
             ctx.ellipse(-player.radius * 0.2, player.radius * 0.5, player.radius * 0.25, player.radius * 0.15, 0, 0, Math.PI * 2);
             ctx.fill();
             
+            // 口の描画（開閉アニメーション）
+            const mouthOpenness = GameState.playerMouthOpen ? 
+                Math.sin(GameState.playerMouthAnimation * Math.PI) : 0;
+            
+            if (mouthOpenness > 0.1) {
+                ctx.fillStyle = '#000000';
+                ctx.beginPath();
+                ctx.ellipse(player.radius * 0.4, 0, player.radius * 0.15, player.radius * 0.1 * mouthOpenness, 0, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            
             // 目（魚の前側）
             const eyeSize = player.radius * 0.15;
             
@@ -2361,6 +3107,12 @@
             ctx.fillStyle = 'white';
             ctx.beginPath();
             ctx.arc(player.radius * 0.3, -player.radius * 0.25, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 目の輝き
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.beginPath();
+            ctx.arc(player.radius * 0.32, -player.radius * 0.27, eyeSize * 0.3, 0, Math.PI * 2);
             ctx.fill();
             
             ctx.fillStyle = 'black';
@@ -2372,6 +3124,12 @@
             ctx.fillStyle = 'white';
             ctx.beginPath();
             ctx.arc(player.radius * 0.3, player.radius * 0.25, eyeSize, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 目の輝き
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+            ctx.beginPath();
+            ctx.arc(player.radius * 0.32, player.radius * 0.27, eyeSize * 0.3, 0, Math.PI * 2);
             ctx.fill();
             
             ctx.fillStyle = 'black';
@@ -2390,6 +3148,15 @@
             ctx.fillText(GameState.level, 0, 4);
             
             ctx.restore();
+        }
+
+        // 色を明るく/暗くする関数
+        function adjustColor(color, amount) {
+            const hex = color.replace('#', '');
+            const r = Math.max(0, Math.min(255, parseInt(hex.substr(0, 2), 16) + amount));
+            const g = Math.max(0, Math.min(255, parseInt(hex.substr(2, 2), 16) + amount));
+            const b = Math.max(0, Math.min(255, parseInt(hex.substr(4, 2), 16) + amount));
+            return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
         }
 
         // UI効果描画
@@ -2517,36 +3284,285 @@
             elements.joystickKnob.style.left = '50%';
             elements.joystickKnob.style.top = '50%';
             
+            // アニメーション停止
+            if (GameState.animationId) {
+                cancelAnimationFrame(GameState.animationId);
+                GameState.animationId = null;
+            }
+            
             // 成果の計算
             const achievements = [];
             if (GameState.score > 1000) achievements.push('🏆 大冒険者');
             if (GameState.level >= 5) achievements.push('🎖️ 深海探検家');
-            if (GameState.player.radius > 30) achievements.push('🐋 海の王者');
+            if (GameState.player && GameState.player.radius > 30) achievements.push('🐋 海の王者');
+            if (GameState.score > 2000) achievements.push('🌟 海洋マスター');
+            if (GameState.level >= 8) achievements.push('🔱 海神の寵愛');
             
             elements.finalScore.textContent = `スコア: ${GameState.score}`;
             elements.achievements.textContent = achievements.join(' ');
             elements.gameOverScreen.style.display = 'flex';
+        }
+
+        // 既存の描画関数（詳細描画で参照）
+        function drawShark(ctx, entity) {
+            // 体
+            ctx.fillStyle = entity.color;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, entity.radius, entity.radius * 0.6, 0, 0, Math.PI * 2);
+            ctx.fill();
             
-            if (GameState.animationId) {
-                cancelAnimationFrame(GameState.animationId);
+            // 背びれ
+            ctx.beginPath();
+            ctx.moveTo(-entity.radius * 0.5, -entity.radius * 0.6);
+            ctx.lineTo(-entity.radius * 0.2, -entity.radius * 1.2);
+            ctx.lineTo(entity.radius * 0.2, -entity.radius * 0.6);
+            ctx.fill();
+            
+            // 尻尾
+            ctx.beginPath();
+            ctx.moveTo(-entity.radius, 0);
+            ctx.lineTo(-entity.radius * 1.5, -entity.radius * 0.4);
+            ctx.lineTo(-entity.radius * 1.3, 0);
+            ctx.lineTo(-entity.radius * 1.5, entity.radius * 0.4);
+            ctx.fill();
+            
+            // 鋭い歯（攻撃中）
+            if (entity.isAttacking) {
+                ctx.fillStyle = 'white';
+                for (let i = 0; i < 6; i++) {
+                    const toothX = entity.radius * 0.3 + (i * 3);
+                    const toothY = (i % 2) * 2 - 1;
+                    ctx.beginPath();
+                    ctx.moveTo(toothX, toothY);
+                    ctx.lineTo(toothX + 4, toothY);
+                    ctx.lineTo(toothX + 2, toothY + 3);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            }
+            
+            drawEyesRotated(ctx, entity);
+        }
+
+        function drawSquid(ctx, entity) {
+            // 体の形状
+            ctx.fillStyle = entity.color;
+            ctx.beginPath();
+            ctx.ellipse(0, 0, entity.radius, entity.radius * 1.5, 0, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // 触手
+            for (let i = 0; i < 8; i++) {
+                ctx.save();
+                ctx.rotate((i / 8) * Math.PI * 2);
+                ctx.strokeStyle = entity.color;
+                ctx.lineWidth = 2;
+                ctx.beginPath();
+                ctx.moveTo(0, entity.radius);
+                const tentacleLength = entity.radius + 15;
+                for (let j = 0; j < tentacleLength; j += 3) {
+                    const wave = Math.sin(j * 0.2 + Date.now() * 0.01) * 2;
+                    ctx.lineTo(wave, entity.radius + j);
+                }
+                ctx.stroke();
+                ctx.restore();
+            }
+            
+            drawEyesRotated(ctx, entity);
+        }
+
+        function drawJellyfish(ctx, entity) {
+            // 傘の部分（透明感のあるグラデーション）
+            const jellyfishGradient = ctx.createRadialGradient(0, -entity.radius * 0.3, 0, 0, -entity.radius * 0.3, entity.radius);
+            jellyfishGradient.addColorStop(0, entity.color + 'CC');
+            jellyfishGradient.addColorStop(0.7, entity.color + '80');
+            jellyfishGradient.addColorStop(1, entity.color + '40');
+            
+            ctx.fillStyle = jellyfishGradient;
+            ctx.beginPath();
+            ctx.arc(0, -entity.radius * 0.3, entity.radius, 0, Math.PI, false);
+            ctx.fill();
+            
+            // 触手
+            ctx.strokeStyle = entity.color + 'AA';
+            ctx.lineWidth = 2;
+            for (let i = 0; i < 6; i++) {
+                const x = (i - 2.5) * 6;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                for (let j = 0; j < 20; j += 2) {
+                    const waveX = x + Math.sin(j * 0.3 + Date.now() * 0.01) * 3;
+                    ctx.lineTo(waveX, j + 5);
+                }
+                ctx.stroke();
+            }
+            
+            // 光る効果
+            if (Math.random() < 0.1) {
+                ctx.save();
+                ctx.globalAlpha = 0.5;
+                ctx.fillStyle = '#FFFFFF';
+                ctx.beginPath();
+                ctx.arc(0, -entity.radius * 0.3, entity.radius * 0.8, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.restore();
             }
         }
 
-        // 初期化
+        // タッチイベントの改善（iPhone対応）
+        function handleTap(e) {
+            if (!GameState.gameRunning) return;
+            
+            e.preventDefault();
+            e.stopPropagation();
+            
+            const rect = elements.canvas.getBoundingClientRect();
+            let clientX, clientY;
+            
+            if (e.touches && e.touches[0]) {
+                clientX = e.touches[0].clientX;
+                clientY = e.touches[0].clientY;
+            } else {
+                clientX = e.clientX;
+                clientY = e.clientY;
+            }
+            
+            const canvasX = clientX - rect.left;
+            const canvasY = clientY - rect.top;
+            
+            // ジョイスティック領域との重複チェック
+            const joystickRect = elements.joystick.getBoundingClientRect();
+            const joystickX = clientX - joystickRect.left;
+            const joystickY = clientY - joystickRect.top;
+            
+            // ジョイスティック領域内のタップは無視
+            if (joystickX >= 0 && joystickX <= joystickRect.width && 
+                joystickY >= 0 && joystickY <= joystickRect.height) {
+                return;
+            }
+            
+            GameState.player.targetX = canvasX;
+            GameState.player.targetY = canvasY;
+            
+            // 泡効果
+            createBubble();
+        }
+
+        function handleTouchMove(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        // パフォーマンス最適化
+        function optimizePerformance() {
+            // エンティティ数制限
+            if (GameState.entities.length > 50) {
+                GameState.entities = GameState.entities.slice(0, 45);
+            }
+            
+            // パーティクル数制限
+            if (GameState.particles.length > 100) {
+                GameState.particles = GameState.particles.slice(0, 80);
+            }
+            
+            // 古いアニメーションのクリーンアップ
+            GameState.eatingAnimations = GameState.eatingAnimations.filter(anim => anim.life > 0);
+            GameState.swallowingAnimations = GameState.swallowingAnimations.filter(anim => anim.life > 0);
+            GameState.bloodEffects = GameState.bloodEffects.filter(blood => blood.life > 0);
+        }
+
+        // メインゲームループの最適化
+        function gameLoop(currentTime) {
+            if (!GameState.gameRunning) return;
+            
+            // 初回実行時の処理
+            if (!GameState.lastFrameTime) {
+                GameState.lastFrameTime = currentTime;
+            }
+            
+            const deltaTime = Math.min(currentTime - GameState.lastFrameTime, 50); // 最大50msに制限
+            GameState.lastFrameTime = currentTime;
+            
+            // パフォーマンス最適化（5秒に1回）
+            if (currentTime % 5000 < deltaTime) {
+                optimizePerformance();
+            }
+            
+            update(deltaTime);
+            render();
+            
+            GameState.animationId = requestAnimationFrame(gameLoop);
+        }
+
+        // レスポンシブ対応の改善
+        function resizeCanvas() {
+            const prevWidth = elements.canvas.width;
+            const prevHeight = elements.canvas.height;
+            
+            elements.canvas.width = window.innerWidth;
+            elements.canvas.height = window.innerHeight;
+            
+            // プレイヤー位置を画面サイズに合わせて調整
+            if (GameState.player && prevWidth > 0 && prevHeight > 0) {
+                const ratioX = elements.canvas.width / prevWidth;
+                const ratioY = elements.canvas.height / prevHeight;
+                
+                GameState.player.x *= ratioX;
+                GameState.player.y *= ratioY;
+                GameState.player.targetX *= ratioX;
+                GameState.player.targetY *= ratioY;
+                
+                // エンティティの位置も調整
+                GameState.entities.forEach(entity => {
+                    entity.x *= ratioX;
+                    entity.y *= ratioY;
+                });
+            }
+        }
+
+        // 初期化の改善
         function init() {
             getDOMElements();
             resizeCanvas();
             setupEventListeners();
             
+            // iPhone Safari対応
+            if (window.DeviceMotionEvent && typeof DeviceMotionEvent.requestPermission === 'function') {
+                // iOS 13+の場合、権限要求は必要に応じて行う
+            }
+            
             // 初期泡を作成
             for (let i = 0; i < 30; i++) {
                 createBubble();
             }
+            
+            // タッチ遅延防止
+            document.addEventListener('touchstart', function(){}, {passive: false});
         }
 
-        // ページ読み込み完了時に初期化
-        document.addEventListener('DOMContentLoaded', init);
-        window.addEventListener('load', init);
+        // 安全なDOMContentLoaded処理
+        function safeInit() {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', init);
+            } else {
+                init();
+            }
+        }
+
+        // エラーハンドリング付きの初期化
+        try {
+            safeInit();
+        } catch (error) {
+            console.error('初期化エラー:', error);
+            // フォールバック初期化
+            window.addEventListener('load', function() {
+                try {
+                    init();
+                } catch (e) {
+                    console.error('フォールバック初期化も失敗:', e);
+                }
+            });
+        }
     </script>
 </body>
 </html>
