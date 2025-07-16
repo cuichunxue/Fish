@@ -8,25 +8,21 @@
     <meta name="theme-color" content="#003f5c">
     <title>海の大冒険！魚のエボリューション</title>
     <style>
-        * {
+        html, body {
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
-        }
-
-        body {
-            font-family: 'Arial', sans-serif;
-            background: linear-gradient(180deg, #0077be 0%, #003f5c 100%);
+            width: 100%;
+            height: 100%;
             overflow: hidden;
-            user-select: none;
-            -webkit-user-select: none;
-            -webkit-touch-callout: none;
+            background: linear-gradient(180deg, #0077be 0%, #003f5c 100%);
+            font-family: Arial, sans-serif;
+            touch-action: none;
         }
 
         #gameContainer {
             position: relative;
-            width: 100vw;
-            height: 100vh;
+            width: 100%;
+            height: 100%;
         }
 
         #gameCanvas {
@@ -125,18 +121,17 @@
         }
 
         #joystick {
-        position: absolute;
-        bottom: calc(env(safe-area-inset-bottom) + 20px);
-        right: 20px;
-        width: 80px;
-        height: 80px;
-        background: rgba(255, 255, 255, 0.2);
-        border: 2px solid rgba(255, 255, 255, 0.4);
-        border-radius: 50%;
-        z-index: 10000;
-        display: none;
-        touch-action: none;
-        pointer-events: auto;
+            position: absolute;
+            bottom: calc(env(safe-area-inset-bottom) + 20px);
+            right: env(safe-area-inset-right, 20px);
+            width: 80px;
+            height: 80px;
+            background: rgba(255,255,255,0.2);
+            border: 2px solid rgba(255,255,255,0.4);
+            border-radius: 50%;
+            z-index: 100;
+            touch-action: none;
+            pointer-events: auto;
         }
 
         #joystickKnob {
